@@ -33,9 +33,9 @@ vector = Pinecone.from_texts([t.page_content for t in texts], embeddings, index_
 llm = OpenAI(temperature=0, openai_api_key=OPENAI_API_KEY)
 chain = load_qa_chain(llm, chain_type="stuff")
 while True:
-    query = input("Enter the query (Press 'q' to stop): ")
+    query = input("Enter the query (Press 'q' to stop): \n")
     if query == 'q':
         break
     docs = vector.similarity_search(query)
     res=chain.run(input_documents=docs, question=query)
-    print(res)
+    print(res+"\n")
