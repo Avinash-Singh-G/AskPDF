@@ -1,3 +1,4 @@
+import streamlit as st
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Chroma, Pinecone
@@ -6,36 +7,50 @@ from langchain.llms import OpenAI
 from langchain.chains.question_answering import load_qa_chain
 import pinecone
 import os
+import io
+import tempfile
 
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', 'your-openai-api-key')
-PINECONE_API_KEY = os.environ.get('PINECONE_API_KEY', 'your-pinecone-api-key')
-PINECONE_API_ENV = os.environ.get('PINECONE_API_ENV', 'your-pinecone-api-env')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+PINECONE_API_KEY = os.environ.get('PINECONE_API_KEY', '')
+PINECONE_API_ENV = os.environ.get('PINECONE_API_ENV', '')
 
-# 1. Load the document
-file_path = input("Enter the file path: ")
-loader = PyPDFLoader(file_path)
-data = loader.load()
+# Initialize Pinecone outside the caching decorator
+pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_API_ENV)
 
-# 2. Chunk the document
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=0)
-texts = text_splitter.split_documents(data)
+def process_pdf(file):
+    # Save the BytesIO object as a temporary file
+    temp_file = tempfile.NamedTemporaryFile(delete=False)
+    temp_file.write(file.read())
+    temp_file.close()
 
-# 3. Create Embeddings Vector Store
-embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
-pinecone.init(
-    api_key=PINECONE_API_KEY,  
-    environment=PINECONE_API_ENV  
-)
-index_name = "askpdf"
-vector = Pinecone.from_texts([t.page_content for t in texts], embeddings, index_name=index_name)
+    # 1. Load the document
+    loader = PyPDFLoader(temp_file.name)
+    data = loader.load()
 
-# 4. Query the pdf
-llm = OpenAI(temperature=0, openai_api_key=OPENAI_API_KEY)
-chain = load_qa_chain(llm, chain_type="stuff")
-while True:
-    query = input("Enter the query (Press 'q' to stop): ")
-    if query == 'q':
-        break
-    docs = vector.similarity_search(query)
-    res=chain.run(input_documents=docs, question=query)
-    print("\n"+res+"\n")
+    # 2. Chunk the document
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=0)
+    texts = text_splitter.split_documents(data)
+
+    return texts
+
+def main():
+    st.title("AskPDF Web App")
+
+    file = st.file_uploader("Upload a PDF file", type="pdf")
+    
+    if file is not None:
+        texts = process_pdf(file)
+
+        embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
+        vector = Pinecone.from_texts([t.page_content for t in texts], embeddings, index_name="askpdf")
+
+        query = st.text_input("Enter the query:")
+        if query:
+            docs = vector.similarity_search(query)
+            llm = OpenAI(temperature=0, openai_api_key=OPENAI_API_KEY)
+            chain = load_qa_chain(llm, chain_type="stuff")
+            res = chain.run(input_documents=docs, question=query)
+            st.write(res)
+
+if __name__ == '__main__':
+    main()
